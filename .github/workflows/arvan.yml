@@ -1,10 +1,7 @@
 name: Download and Upload to ArvanCloud Storage
 
 on:
-  workflow_dispatch:  # Manual trigger (you click "Run workflow")
-  # OR uncomment below to run on schedule
-  # schedule:
-  #   - cron: '0 0 * * *'  # Daily at midnight
+  workflow_dispatch:
 
 jobs:
   download-and-upload:
@@ -16,25 +13,24 @@ jobs:
           curl -L -o v2rayN-linux-rhel-64.rpm \
             https://github.com/2dust/v2rayN/releases/download/7.20.4/v2rayN-linux-rhel-64.rpm
       
-      - name: Verify download
+      - name: Install s3cmd
         run: |
-          ls -lh v2rayN-linux-rhel-64.rpm
-          file v2rayN-linux-rhel-64.rpm
+          sudo apt-get update
+          sudo apt-get install -y s3cmd
       
-      - name: Configure ArvanCloud S3 credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.SECRET_KEY }}
-          aws-region: ir-thr-at1
-      
-      - name: Upload to ArvanCloud Storage
+      - name: Create s3cmd config
         run: |
-          aws s3 cp v2rayN-linux-rhel-64.rpm \
-            s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm \
-            --endpoint-url https://${{ secrets.STORAGE_ENDPOINT }}
+          cat > ~/.s3cfg << EOF
+          [default]
+          access_key = ${{ secrets.ACCESS_KEY }}
+          secret_key = ${{ secrets.SECRET_KEY }}
+          host_base = ${{ secrets.STORAGE_ENDPOINT }}
+          host_bucket = ${{ secrets.STORAGE_BUCKET }}.${{ secrets.STORAGE_ENDPOINT }}
+          use_https = True
+          signature_v2 = False
+          EOF
       
-      - name: Verify upload (optional)
+      - name: Upload to ArvanCloud
         run: |
-          aws s3 ls s3://${{ secrets.STORAGE_BUCKET }}/ \
-            --endpoint-url https://${{ secrets.STORAGE_ENDPOINT }}
+          s3cmd put v2rayN-linux-rhel-64.rpm \
+            s3://${{ secrets.STORAGE_BUCKET }}/
