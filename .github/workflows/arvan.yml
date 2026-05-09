@@ -13,24 +13,30 @@ jobs:
           curl -L -o v2rayN-linux-rhel-64.rpm \
             https://github.com/2dust/v2rayN/releases/download/7.20.4/v2rayN-linux-rhel-64.rpm
       
-      - name: Install s3cmd
+      - name: Install rclone
         run: |
           sudo apt-get update
-          sudo apt-get install -y s3cmd
+          sudo apt-get install -y rclone
       
-      - name: Create s3cmd config
+      - name: Configure rclone for ArvanCloud
         run: |
-          cat > ~/.s3cfg << EOF
-          [default]
-          access_key = ${{ secrets.ACCESS_KEY }}
-          secret_key = ${{ secrets.SECRET_KEY }}
-          host_base = ${{ secrets.STORAGE_ENDPOINT }}
-          host_bucket = ${{ secrets.STORAGE_BUCKET }}.${{ secrets.STORAGE_ENDPOINT }}
-          use_https = True
-          signature_v2 = False
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [arvan]
+          type = s3
+          provider = Other
+          access_key_id = ${{ secrets.ACCESS_KEY }}
+          secret_access_key = ${{ secrets.SECRET_KEY }}
+          endpoint = https://${{ secrets.STORAGE_ENDPOINT }}
+          region = ir-thr-at1
+          acl = private
+          no_check_bucket = true
           EOF
       
       - name: Upload to ArvanCloud
         run: |
-          s3cmd put v2rayN-linux-rhel-64.rpm \
-            s3://${{ secrets.STORAGE_BUCKET }}/
+          rclone copy v2rayN-linux-rhel-64.rpm arvan:${{ secrets.STORAGE_BUCKET }}/
+      
+      - name: List files to verify
+        run: |
+          rclone ls arvan:${{ secrets.STORAGE_BUCKET }}/
