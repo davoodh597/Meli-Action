@@ -11,20 +11,29 @@ jobs:
       - name: Download file
         run: |
           echo "=== Downloading file ==="
+
           curl -L -o v2rayN-linux-rhel-64.rpm \
             https://github.com/2dust/v2rayN/releases/download/7.20.4/v2rayN-linux-rhel-64.rpm
 
           ls -lh v2rayN-linux-rhel-64.rpm
 
-      - name: Install AWS CLI
+      - name: Install AWS CLI v2 (official)
         run: |
-          echo "=== Installing AWS CLI ==="
+          echo "=== Installing AWS CLI v2 ==="
+
           sudo apt-get update
-          sudo apt-get install -y awscli
+          sudo apt-get install -y curl unzip
+
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" \
+            -o "awscliv2.zip"
+
+          unzip -q awscliv2.zip
+
+          sudo ./aws/install
 
           aws --version
 
-      - name: Configure AWS CLI for ArvanCloud
+      - name: Configure AWS credentials
         run: |
           echo "=== Configuring AWS CLI ==="
 
@@ -32,20 +41,18 @@ jobs:
           aws configure set aws_secret_access_key ${{ secrets.SECRET_KEY }}
           aws configure set default.region us-east-1
 
-      - name: Test connection to ArvanCloud
+      - name: Test connectivity
         run: |
           echo "=== Testing endpoint ==="
-
           curl -I https://${{ secrets.STORAGE_ENDPOINT }} || true
 
-      - name: Upload file (FAST MULTIPART)
+      - name: Upload to ArvanCloud (FAST MULTIPART)
         run: |
-          echo "=== Uploading with AWS CLI multipart ==="
+          echo "=== Uploading file ==="
 
           aws s3 cp v2rayN-linux-rhel-64.rpm \
             s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm \
             --endpoint-url https://${{ secrets.STORAGE_ENDPOINT }} \
-            --storage-class STANDARD \
             --only-show-errors
 
       - name: Verify upload
@@ -55,9 +62,9 @@ jobs:
           aws s3 ls s3://${{ secrets.STORAGE_BUCKET }}/ \
             --endpoint-url https://${{ secrets.STORAGE_ENDPOINT }}
 
-      - name: Check file metadata
+      - name: Check file info
         run: |
-          echo "=== File info ==="
+          echo "=== File verification ==="
 
           aws s3 ls \
             s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm \
