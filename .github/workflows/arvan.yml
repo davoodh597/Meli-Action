@@ -1,0 +1,40 @@
+name: Download and Upload to ArvanCloud Storage
+
+on:
+  workflow_dispatch:  # Manual trigger (you click "Run workflow")
+  # OR uncomment below to run on schedule
+  # schedule:
+  #   - cron: '0 0 * * *'  # Daily at midnight
+
+jobs:
+  download-and-upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download v2rayN RPM file
+        run: |
+          curl -L -o v2rayN-linux-rhel-64.rpm \
+            https://github.com/2dust/v2rayN/releases/download/7.20.4/v2rayN-linux-rhel-64.rpm
+      
+      - name: Verify download
+        run: |
+          ls -lh v2rayN-linux-rhel-64.rpm
+          file v2rayN-linux-rhel-64.rpm
+      
+      - name: Configure ArvanCloud S3 credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.SECRET_KEY }}
+          aws-region: ir-thr-at1
+      
+      - name: Upload to ArvanCloud Storage
+        run: |
+          aws s3 cp v2rayN-linux-rhel-64.rpm \
+            s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm \
+            --endpoint-url https://${{ secrets.STORAGE_ENDPOINT }}
+      
+      - name: Verify upload (optional)
+        run: |
+          aws s3 ls s3://${{ secrets.STORAGE_BUCKET }}/ \
+            --endpoint-url https://${{ secrets.STORAGE_ENDPOINT }}
