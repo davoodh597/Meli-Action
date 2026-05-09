@@ -8,105 +8,57 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download v2rayN RPM file
+      - name: Download file
         run: |
-          echo "=== Downloading file from GitHub ==="
-
+          echo "=== Downloading file ==="
           curl -L -o v2rayN-linux-rhel-64.rpm \
             https://github.com/2dust/v2rayN/releases/download/7.20.4/v2rayN-linux-rhel-64.rpm
 
-          echo "=== Download complete ==="
           ls -lh v2rayN-linux-rhel-64.rpm
 
-      - name: Install s3cmd
+      - name: Install AWS CLI
         run: |
-          echo "=== Installing s3cmd ==="
-
+          echo "=== Installing AWS CLI ==="
           sudo apt-get update
-          sudo apt-get install -y s3cmd ca-certificates
+          sudo apt-get install -y awscli
 
-          echo "=== s3cmd version ==="
-          s3cmd --version
+          aws --version
 
-      - name: Test connectivity
+      - name: Configure AWS CLI for ArvanCloud
         run: |
-          echo "=== Testing endpoint connectivity ==="
+          echo "=== Configuring AWS CLI ==="
+
+          aws configure set aws_access_key_id ${{ secrets.ACCESS_KEY }}
+          aws configure set aws_secret_access_key ${{ secrets.SECRET_KEY }}
+          aws configure set default.region us-east-1
+
+      - name: Test connection to ArvanCloud
+        run: |
+          echo "=== Testing endpoint ==="
 
           curl -I https://${{ secrets.STORAGE_ENDPOINT }} || true
 
-          echo "=== DNS lookup ==="
-          getent hosts ${{ secrets.STORAGE_ENDPOINT }} || true
-
-      - name: Create s3cmd config
+      - name: Upload file (FAST MULTIPART)
         run: |
-          echo "=== Creating ~/.s3cfg ==="
+          echo "=== Uploading with AWS CLI multipart ==="
 
-          cat > ~/.s3cfg << EOF
-          [default]
-          access_key = ${{ secrets.ACCESS_KEY }}
-          secret_key = ${{ secrets.SECRET_KEY }}
+          aws s3 cp v2rayN-linux-rhel-64.rpm \
+            s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm \
+            --endpoint-url https://${{ secrets.STORAGE_ENDPOINT }} \
+            --storage-class STANDARD \
+            --only-show-errors
 
-          host_base = ${{ secrets.STORAGE_ENDPOINT }}
-          host_bucket = ${{ secrets.STORAGE_ENDPOINT }}
-
-          use_https = True
-          signature_v2 = False
-
-          enable_multipart = False
-
-          check_ssl_certificate = True
-          check_ssl_hostname = True
-
-          socket_timeout = 300
-
-          human_readable_sizes = True
-          encoding = UTF-8
-
-          verbosity = DEBUG
-          EOF
-
-          echo "=== Config created ==="
-          cat ~/.s3cfg
-
-      - name: Test bucket access
+      - name: Verify upload
         run: |
-          echo "=== Listing buckets ==="
+          echo "=== Listing bucket ==="
 
-          s3cmd ls
+          aws s3 ls s3://${{ secrets.STORAGE_BUCKET }}/ \
+            --endpoint-url https://${{ secrets.STORAGE_ENDPOINT }}
 
-          echo "=== Checking bucket ==="
-
-          s3cmd ls s3://${{ secrets.STORAGE_BUCKET }}/
-
-      - name: Upload file to ArvanCloud
+      - name: Check file metadata
         run: |
-          echo "=== Starting upload ==="
+          echo "=== File info ==="
 
-          s3cmd put \
-            --disable-multipart \
-            --no-check-md5 \
-            --progress \
-            v2rayN-linux-rhel-64.rpm \
-            s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm
-
-          echo "=== Upload completed ==="
-
-      - name: Verify uploaded file
-        run: |
-          echo "=== Verifying uploaded file ==="
-
-          s3cmd info \
-            s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm
-
-          echo "=== Bucket contents ==="
-
-          s3cmd ls \
-            s3://${{ secrets.STORAGE_BUCKET }}/
-
-      - name: Test direct file access
-        run: |
-          echo "=== Testing public URL ==="
-
-          curl -I \
-            https://${{ secrets.STORAGE_BUCKET }}.${{ secrets.STORAGE_ENDPOINT }}/v2rayN-linux-rhel-64.rpm \
-            || true
+          aws s3 ls \
+            s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm \
+            --endpoint-url https://${{ secrets.STORAGE_ENDPOINT }}
