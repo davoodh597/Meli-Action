@@ -6,118 +6,107 @@ on:
 jobs:
   download-and-upload:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Download v2rayN RPM file
         run: |
           echo "=== Downloading file from GitHub ==="
+
           curl -L -o v2rayN-linux-rhel-64.rpm \
             https://github.com/2dust/v2rayN/releases/download/7.20.4/v2rayN-linux-rhel-64.rpm
-          echo "Download complete. File size:"
+
+          echo "=== Download complete ==="
           ls -lh v2rayN-linux-rhel-64.rpm
-      
-      - name: Install s3cmd with debug tools
+
+      - name: Install s3cmd
         run: |
-          echo "=== Installing s3cmd and dependencies ==="
+          echo "=== Installing s3cmd ==="
+
           sudo apt-get update
-          sudo apt-get install -y s3cmd curl ca-certificates
-          echo "s3cmd version:"
+          sudo apt-get install -y s3cmd ca-certificates
+
+          echo "=== s3cmd version ==="
           s3cmd --version
-      
-      - name: Test network connectivity to ArvanCloud
+
+      - name: Test connectivity
         run: |
-          echo "=== Testing DNS resolution ==="
-          nslookup ${{ secrets.STORAGE_ENDPOINT }} || echo "nslookup failed, trying dig..."
-          dig ${{ secrets.STORAGE_ENDPOINT }} || echo "dig not available"
-          
-          echo "=== Testing HTTPS connectivity ==="
-          curl -v -I https://${{ secrets.STORAGE_ENDPOINT }} 2>&1 | head -20
-          
-          echo "=== Testing SSL/TLS connection ==="
-          openssl s_client -connect ${{ secrets.STORAGE_ENDPOINT }}:443 -servername ${{ secrets.STORAGE_ENDPOINT }} <<< "Q" 2>&1 | grep -E "Verify|subject|issuer|Protocol"
-      
-      - name: Create s3cmd config with debug options
+          echo "=== Testing endpoint connectivity ==="
+
+          curl -I https://${{ secrets.STORAGE_ENDPOINT }} || true
+
+          echo "=== DNS lookup ==="
+          getent hosts ${{ secrets.STORAGE_ENDPOINT }} || true
+
+      - name: Create s3cmd config
         run: |
-          echo "=== Creating s3cmd configuration ==="
-          cat > ~/.s3cfg << 'EOF'
+          echo "=== Creating ~/.s3cfg ==="
+
+          cat > ~/.s3cfg << EOF
           [default]
           access_key = ${{ secrets.ACCESS_KEY }}
           secret_key = ${{ secrets.SECRET_KEY }}
+
           host_base = ${{ secrets.STORAGE_ENDPOINT }}
-          host_bucket = %(bucket)s.${{ secrets.STORAGE_ENDPOINT }}
+          host_bucket = ${{ secrets.STORAGE_ENDPOINT }}
+
           use_https = True
           signature_v2 = False
+
+          enable_multipart = False
+
           check_ssl_certificate = True
-          debug = True
-          verbose = True
-          send_chunk = 10485760
-          enable_multipart = True
-          multipart_chunk_size_mb = 10
+          check_ssl_hostname = True
+
           socket_timeout = 300
+
           human_readable_sizes = True
           encoding = UTF-8
-          add_encoding_exts = 
-          force = False
-          no_check_certificate = False
+
+          verbosity = DEBUG
           EOF
-          
-          echo "=== Config file created ==="
+
+          echo "=== Config created ==="
           cat ~/.s3cfg
-      
-      - name: Test s3cmd connectivity (list buckets)
+
+      - name: Test bucket access
         run: |
-          echo "=== Testing connection by listing buckets ==="
-          echo "Command: s3cmd ls --verbose --debug"
-          s3cmd ls --verbose --debug 2>&1
-          echo "=== Connection test completed ==="
-      
-      - name: Test if bucket exists and is accessible
+          echo "=== Listing buckets ==="
+
+          s3cmd ls
+
+          echo "=== Checking bucket ==="
+
+          s3cmd ls s3://${{ secrets.STORAGE_BUCKET }}/
+
+      - name: Upload file to ArvanCloud
         run: |
-          echo "=== Testing bucket access: ${{ secrets.STORAGE_BUCKET }} ==="
-          echo "Command: s3cmd ls s3://${{ secrets.STORAGE_BUCKET }}/ --verbose --debug"
-          s3cmd ls s3://${{ secrets.STORAGE_BUCKET }}/ --verbose --debug 2>&1
-          
-          echo "=== Trying bucket info with different method ==="
-          echo "Command: s3cmd info s3://${{ secrets.STORAGE_BUCKET }}/"
-          s3cmd info s3://${{ secrets.STORAGE_BUCKET }}/ 2>&1 || echo "Info command failed - bucket may not exist or access denied"
-      
-      - name: Upload to ArvanCloud with FULL verbose output
-        run: |
-          echo "=== Starting upload with verbose logging ==="
-          echo "Source file: v2rayN-linux-rhel-64.rpm"
-          echo "Destination: s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm"
-          echo "=== Full command output with --verbose --debug ==="
-          
+          echo "=== Starting upload ==="
+
           s3cmd put \
-            --verbose \
-            --debug \
-            --progress \
-            --recursive \
+            --disable-multipart \
             --no-check-md5 \
-            --limit-rate=0 \
+            --progress \
             v2rayN-linux-rhel-64.rpm \
-            s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm \
-            2>&1
-          
-          UPLOAD_EXIT_CODE=$?
-          echo "=== Upload command exit code: $UPLOAD_EXIT_CODE ==="
-          
-          if [ $UPLOAD_EXIT_CODE -ne 0 ]; then
-            echo "❌ Upload failed with exit code $UPLOAD_EXIT_CODE"
-            exit $UPLOAD_EXIT_CODE
-          fi
-      
-      - name: Verify upload with detailed file listing
+            s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm
+
+          echo "=== Upload completed ==="
+
+      - name: Verify uploaded file
         run: |
           echo "=== Verifying uploaded file ==="
-          echo "Listing all files in bucket:"
-          s3cmd ls s3://${{ secrets.STORAGE_BUCKET }}/ --verbose --debug 2>&1
-          
-          echo "=== Getting file info ==="
-          s3cmd info s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm 2>&1 || echo "File not found or cannot access"
-      
-      - name: Final connection test
+
+          s3cmd info \
+            s3://${{ secrets.STORAGE_BUCKET }}/v2rayN-linux-rhel-64.rpm
+
+          echo "=== Bucket contents ==="
+
+          s3cmd ls \
+            s3://${{ secrets.STORAGE_BUCKET }}/
+
+      - name: Test direct file access
         run: |
-          echo "=== Final connectivity and file check ==="
-          echo "Testing direct HTTPS access to file (if public):"
-          curl -I "https://${{ secrets.STORAGE_BUCKET }}.${{ secrets.STORAGE_ENDPOINT }}/v2rayN-linux-rhel-64.rpm" 2>&1 | head -10 || echo "File may not be publicly accessible"
+          echo "=== Testing public URL ==="
+
+          curl -I \
+            https://${{ secrets.STORAGE_BUCKET }}.${{ secrets.STORAGE_ENDPOINT }}/v2rayN-linux-rhel-64.rpm \
+            || true
