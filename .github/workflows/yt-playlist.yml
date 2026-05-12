@@ -1,0 +1,131 @@
+name: دانلودر پلی‌لیست یوتیوب
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'YouTube video or playlist URL'
+        required: true
+        type: string
+      output_format:
+        description: 'Output type'
+        required: true
+        type: choice
+        options:
+          - mp4 (video)
+          - mp3 (audio only)
+        default: 'mp4 (video)'
+      max_part_mb:
+        description: 'Maximum part size in MB (0 = do not split)'
+        required: false
+        type: number
+        default: 90
+      output_folder:
+        description: 'Folder to store downloaded file and archives (relative to repo root)'
+        required: false
+        type: string
+        default: 'downloads'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-and-store:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg zip python3-pip
+          python3 -m pip install --user -U yt-dlp
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          yt-dlp --version
+
+      - name: Download video or playlist with highest quality
+        run: |
+          set -euo pipefail
+
+          OUTPUT_FOLDER="${{ github.event.inputs.output_folder }}"
+          VIDEO_URL="${{ github.event.inputs.video_url }}"
+          OUTPUT_KIND="${{ github.event.inputs.output_format }}"
+          mkdir -p "$OUTPUT_FOLDER"
+
+          ARCHIVE_FILE="$OUTPUT_FOLDER/downloaded_archive.txt"
+          OUTPUT_TEMPLATE="$OUTPUT_FOLDER/%(playlist_title)s/%(playlist_index)03d - %(title).200s [%(id)s].%(ext)s"
+
+          COMMON_ARGS=(
+            --yes-playlist
+            --ignore-errors
+            --retries 10
+            --fragment-retries 10
+            --continue
+            --no-overwrites
+            --download-archive "$ARCHIVE_FILE"
+            --output-na-placeholder "NA"
+            --windows-filenames
+            --restrict-filenames
+            --newline
+            --output "$OUTPUT_TEMPLATE"
+          )
+
+          if [ "$OUTPUT_KIND" = "mp3 (audio only)" ]; then
+            yt-dlp \
+              "${COMMON_ARGS[@]}" \
+              -f "bestaudio/best" \
+              -x \
+              --audio-format mp3 \
+              --audio-quality 0 \
+              "$VIDEO_URL"
+          else
+            yt-dlp \
+              "${COMMON_ARGS[@]}" \
+              -f "bestvideo*+bestaudio/best" \
+              --merge-output-format "mp4/mkv" \
+              "$VIDEO_URL"
+          fi
+
+      - name: Split oversized files (optional)
+        run: |
+          set -euo pipefail
+
+          OUTPUT_FOLDER="${{ github.event.inputs.output_folder }}"
+          THRESH_MB='${{ github.event.inputs.max_part_mb }}'
+          THRESH_BYTES=$((THRESH_MB * 1024 * 1024))
+
+          if [ "$THRESH_MB" -le 0 ]; then
+            exit 0
+          fi
+
+          find "$OUTPUT_FOLDER" -type f \
+            ! -name 'downloaded_archive.txt' \
+            ! -name '*.zip' | while read -r f; do
+              fs=$(stat -c%s "$f")
+              if [ "$fs" -gt "$THRESH_BYTES" ]; then
+                dir=$(dirname "$f")
+                base=$(basename "$f")
+                (
+                  cd "$dir"
+                  zip -s "${THRESH_MB}m" "${base}.zip" "$base"
+                  rm -f "$base"
+                )
+              fi
+            done
+
+      - name: Push changes to repository
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          git add "${{ github.event.inputs.output_folder }}/"
+          git commit -m "Download YouTube media [skip ci]" || echo "Nothing to commit"
+          git push
